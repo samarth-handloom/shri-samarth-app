@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shri Samarth Handloom - Professional System</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body class="bg-gray-50">
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        function App() {
+            // Auth State
+            const [isAuthenticated, setIsAuthenticated] = useState(false);
+            const [loginPassword, setLoginPassword] = useState('');
+            const [showPasswordSetup, setShowPasswordSetup] = useState(false);
+            const [newPassword, setNewPassword] = useState('');
+            const [confirmPassword, setConfirmPassword] = useState('');
+
+            // App State
+            const [activeTab, setActiveTab] = useState('inventory');
+            const [items, setItems] = useState([]);
+            const [transactions, setTransactions] = useState([]);
+            const [quotations, setQuotations] = useState([]);
+            const [bills, setBills] = useState([]);
+            const [loading, setLoading] = useState(false);
+
+            // Check password on mount
+            useEffect(() => {
+                const storedPassword = localStorage.getItem('shopPassword');
+                if (!storedPassword) {
+                    setShowPasswordSetup(true);
+                }
+                if (isAuthenticated) {
+                    loadData();
+                }
+            }, [isAuthenticated]);
+
+            // Auto-save
+            useEffect(() => {
+                if (isAuthenticated && !loading) {
+                    localStorage.setItem('shopItems', JSON.stringify(items));
+                    localStorage.setItem('shopTransactions', JSON.stringify(transactions));
+                    localStorage.setItem('shopQuotations', JSON.stringify(quotations));
+                    localStorage.setItem('shopBills', JSON.stringify(bills));
+                }
+            }, [items, transactions, quotations, bills, isAuthenticated]);
+
+            const loadData = () => {
+                setLoading(true);
+                const savedItems = localStorage.getItem('shopItems');
+                const savedTransactions = localStorage.getItem('shopTransactions');
+                const savedQuotations = localStorage.getItem('shopQuotations');
+                const savedBills = localStorage.getItem('shopBills');
+                if (savedItems) setItems(JSON.parse(savedItems));
+                if (savedTransactions) setTransactions(JSON.parse(savedTransactions));
+                if (savedQuotations) setQuotations(JSON.parse(savedQuotations));
+                if (savedBills) setBills(JSON.parse(savedBills));
+                setLoading(false);
+            };
+
+            // Password Setup
+            const handlePasswordSetup = () => {
+                if (newPassword.length < 4) {
+                    alert('पासवर्ड किमान 4 अक्षरांचा असावा!');
+                    return;
+                }
+                if (newPassword !== confirmPassword) {
+                    alert('पासवर्ड match होत नाही!');
+                    return;
+                }
+                localStorage.setItem('shopPassword', newPassword);
+                alert('✅ पासवर्ड set झाला! आता login करा.');
+                setShowPasswordSetup(false);
+            };
+
+            const handleLogin = () => {
+                const storedPassword = localStorage.getItem('shopPassword');
+                if (loginPassword === storedPassword) {
+                    setIsAuthenticated(true);
+                    setLoginPassword('');
+                } else {
+                    alert('❌ चुकीचा पासवर्ड!');
+                }
+            };
+
+            const handleLogout = () => {
+                if (confirm('Logout करायचे आहे का?')) {
+                    setIsAuthenticated(false);
+                    setActiveTab('inventory');
+                }
+            };
+
+            const handleChangePassword = () => {
+                const currentPassword = prompt('सध्याचा पासवर्ड:');
+                if (currentPassword !== localStorage.getItem('shopPassword')) {
+                    alert('❌ चुकीचा पासवर्ड!');
+                    return;
+                }
+                const newPass = prompt('नवीन पासवर्ड (किमान 4 अक्षर):');
+                if (newPass && newPass.length >= 4) {
+                    localStorage.setItem('shopPassword', newPass);
+                    alert('✅ पासवर्ड बदलला!');
+                }
+            };
+
+            // Export/Import
+            const handleExportData = () => {
+                const data = { items, transactions, quotations, bills, exportDate: new Date().toISOString() };
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `backup-${new Date().toISOString().split('T')[0]}.json`;
+                link.click();
+                URL.revokeObjectURL(url);
+                alert('✅ Data export झाला!');
+            };
+
+            const handleImportData = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    try {
+                        const data = JSON.parse(ev.target.result);
+                        if (confirm('⚠️ सध्याचा data replace होईल. Continue?')) {
+                            setLoading(true);
+                            if (data.items) setItems(data.items);
+                            if (data.transactions) setTransactions(data.transactions);
+                            if (data.quotations) setQuotations(data.quotations);
+                            if (data.bills) setBills(data.bills);
+                            setLoading(false);
+                            alert('✅ Data import झाला!');
+                        }
+                    } catch { alert('❌ Invalid file!'); }
+                };
+                reader.readAsText(file);
+                e.target.value = '';
+            };
+
+            // CA Reports - Export to Excel
+            const exportToExcel = (type) => {
+                const wb = XLSX.utils.book_new();
+                
+                if (type === 'sales') {
+                    const data = bills.map(b => ({
+                        'Bill No': `INV-${b.id}`,
+                        'Date': b.date,
+                        'Customer': b.customerName,
+                        'Amount': b.total,
+                        'Items': b.items.map(i => `${i.name}(${i.quantity})`).join(', ')
+                    }));
+                    const ws = XLSX.utils.json_to_sheet(data);
+                    XLSX.utils.book_append_sheet(wb, ws, 'Sales Report');
+                }
+                
+                if (type === 'purchases') {
+                    const data = transactions.filter(t => t.type === 'debit').map(t => ({
+                        'Date': t.date,
+                        'Party': t.party,
+                        'Amount': t.amount,
+                        'Description': t.description
+                    }));
+                    const ws = XLSX.utils.json_to_sheet(data);
+                    XLSX.utils.book_append_sheet(wb, ws, 'Purchase Report');
+                }
+                
+                if (type === 'ledger') {
+                    const data = transactions.map(t => ({
+                        'Date': t.date,
+                        'Type': t.type.toUpperCase(),
+                        'Party': t.party,
+                        'Amount': t.type === 'credit' ? t.amount : -t.amount,
+                        'Description': t.description
+                    }));
+                    const ws = XLSX.utils.json_to_sheet(data);
+                    XLSX.utils.book_append_sheet(wb, ws, 'Complete Ledger');
+                }
+                
+                if (type === 'all') {
+                    // Sales
+                    const salesData = bills.map(b => ({
+                        'Bill No': `INV-${b.id}`,
+                        'Date': b.date,
+                        'Customer': b.customerName,
+                        'Amount': b.total
+                    }));
+                    const ws1 = XLSX.utils.json_to_sheet(salesData);
+                    XLSX.utils.book_append_sheet(wb, ws1, 'Sales');
+                    
+                    // Purchases
+                    const purchaseData = transactions.filter(t => t.type === 'debit').map(t => ({
+                        'Date': t.date,
+                        'Party': t.party,
+                        'Amount': t.amount,
+                        'Description': t.description
+                    }));
+                    const ws2 = XLSX.utils.json_to_sheet(purchaseData);
+                    XLSX.utils.book_append_sheet(wb, ws2, 'Purchases');
+                    
+                    // Ledger
+                    const ledgerData = transactions.map(t => ({
+                        'Date': t.date,
+                        'Type': t.type.toUpperCase(),
+                        'Party': t.party,
+                        'Amount': t.amount,
+                        'Balance': t.type === 'credit' ? '+' + t.amount : '-' + t.amount
+                    }));
+                    const ws3 = XLSX.utils.json_to_sheet(ledgerData);
+                    XLSX.utils.book_append_sheet(wb, ws3, 'Ledger');
+                    
+                    // Summary
+                    const totalSales = bills.reduce((sum, b) => sum + b.total, 0);
+                    const totalPurchases = transactions.filter(t => t.type === 'debit').reduce((sum, t) => sum + t.amount, 0);
+                    const summaryData = [
+                        { 'Description': 'Total Sales', 'Amount': totalSales },
+                        { 'Description': 'Total Purchases', 'Amount': totalPurchases },
+                        { 'Description': 'Net Profit/Loss', 'Amount': totalSales - totalPurchases }
+                    ];
+                    const ws4 = XLSX.utils.json_to_sheet(summaryData);
+                    XLSX.utils.book_append_sheet(wb, ws4, 'Summary');
+                }
+                
+                XLSX.writeFile(wb, `CA-Report-${type}-${new Date().toISOString().split('T')[0]}.xlsx`);
+                alert('✅ Excel file download झाली!');
+            };
+
+            // Inventory
+            const [newItem, setNewItem] = useState({ name: '', rate: '', stock: '', unit: 'meter' });
+            const [editingItem, setEditingItem] = useState(null);
+
+            const handleAddItem = () => {
+                if (!newItem.name || !newItem.rate || !newItem.stock) {
+                    alert('सगळी माहिती भरा!');
+                    return;
+                }
+                if (editingItem) {
+                    setItems(items.map(item => 
+                        item.id === editingItem.id 
+                            ? { ...editingItem, ...newItem, rate: parseFloat(newItem.rate), stock: parseFloat(newItem.stock) }
+                            : item
+                    ));
+                    setEditingItem(null);
+                } else {
+                    setItems([...items, {
+                        id: Date.now(),
+                        ...newItem,
+                        rate: parseFloat(newItem.rate),
+                        stock: parseFloat(newItem.stock)
+                    }]);
+                }
+                setNewItem({ name: '', rate: '', stock: '', unit: 'meter' });
+            };
+
+            const handleEditItem = (item) => {
+                setEditingItem(item);
+                setNewItem({ name: item.name, rate: item.rate, stock: item.stock, unit: item.unit });
+            };
+
+            const handleDeleteItem = (id) => {
+                if (confirm('Item delete करायचे आहे का?')) {
+                    setItems(items.filter(item => item.id !== id));
+                }
+            };
+
+            // Transactions
+            const [transaction, setTransaction] = useState({
+                date: new Date().toISOString().split('T')[0],
+                type: 'credit',
+                party: '',
+                amount: '',
+                description: ''
+            });
+
+            const handleAddTransaction = () => {
+                if (!transaction.party || !transaction.amount) {
+                    alert('Party name आणि amount भरा!');
+                    return;
+                }
+                setTransactions([...transactions, {
+                    id: Date.now(),
+                    ...transaction,
+                    amount: parseFloat(transaction.amount)
+                }]);
+                setTransaction({
+                    date: new Date().toISOString().split('T')[0],
+                    type: 'credit',
+                    party: '',
+                    amount: '',
+                    description: ''
+                });
+            };
+
+            const calculateBalance = () => {
+                return transactions.reduce((acc, t) => t.type === 'credit' ? acc + t.amount : acc - t.amount, 0);
+            };
+
+            // Quotation
+            const [quotation, setQuotation] = useState({
+                customerName: '',
+                sofaLength: '',
+                sofaBreadth: '',
+                cushionCount: '',
+                additionalItems: []
+            });
+            const [billItem, setBillItem] = useState({ itemId: '', quantity: '' });
+
+            const handleGenerateQuotation = () => {
+                if (!quotation.customerName || !quotation.sofaLength || !quotation.sofaBreadth) {
+                    alert('सगळी माहिती भरा!');
+                    return;
+                }
+                const length = parseFloat(quotation.sofaLength);
+                const breadth = parseFloat(quotation.sofaBreadth);
+                const cushionCount = parseInt(quotation.cushionCount) || 4;
+                const cushionArea = length * breadth;
+                const fabricNeeded = cushionArea * cushionCount * 1.2;
+                
+                const quotationItems = [
+                    { 
+                        name: `Cushion Fabric (${cushionCount} cushions)`,
+                        quantity: fabricNeeded.toFixed(2),
+                        unit: 'sq.ft',
+                        rate: 150,
+                        amount: fabricNeeded * 150
+                    },
+                    ...quotation.additionalItems
+                ];
+
+                const total = quotationItems.reduce((sum, item) => sum + item.amount, 0);
+
+                setQuotations([...quotations, {
+                    id: Date.now(),
+                    date: new Date().toISOString().split('T')[0],
+                    customerName: quotation.customerName,
+                    sofaDimensions: `${length}' x ${breadth}'`,
+                    cushionCount,
+                    items: quotationItems,
+                    total
+                }]);
+                setQuotation({
+                    customerName: '',
+                    sofaLength: '',
+                    sofaBreadth: '',
+                    cushionCount: '',
+                    additionalItems: []
+                });
+                alert('✅ Quotation तयार झाले!');
+            };
+
+            const addItemToQuotation = () => {
+                const selectedItem = items.find(i => i.id === parseInt(billItem.itemId));
+                if (!selectedItem || !billItem.quantity) {
+                    alert('Item आणि quantity select करा!');
+                    return;
+                }
+                const quantity = parseFloat(billItem.quantity);
+                const amount = quantity * selectedItem.rate;
+                
+                setQuotation({
+                    ...quotation,
+                    additionalItems: [...quotation.additionalItems, {
+                        name: selectedItem.name,
+                        quantity,
+                        unit: selectedItem.unit,
+                        rate: selectedItem.rate,
+                        amount
+                    }]
+                });
+                setBillItem({ itemId: '', quantity: '' });
+            };
+
+            // Billing
+            const [bill, setBill] = useState({
+                customerName: '',
+                items: []
+            });
+
+            const handleAddToBill = () => {
+                const selectedItem = items.find(i => i.id === parseInt(billItem.itemId));
+                if (!selectedItem || !billItem.quantity) {
+                    alert('Item आणि quantity select करा!');
+                    return;
+                }
+                const quantity = parseFloat(billItem.quantity);
+                
+                if (quantity > selectedItem.stock) {
+                    alert(`Stock कमी आहे! Available: ${selectedItem.stock} ${selectedItem.unit}`);
+                    return;
+                }
+
+                setBill({
+                    ...bill,
+                    items: [...bill.items, {
+                        ...selectedItem,
+                        quantity,
+                        amount: quantity * selectedItem.rate
+                    }]
+                });
+                setBillItem({ itemId: '', quantity: '' });
+            };
+
+            const handleGenerateBill = () => {
+                if (!bill.customerName || bill.items.length === 0) {
+                    alert('Customer name आणि items add करा!');
+                    return;
+                }
+                const total = bill.items.reduce((sum, item) => sum + item.amount, 0);
+                
+                const newBill = {
+                    id: Date.now(),
+                    date: new Date().toISOString().split('T')[0],
+                    customerName: bill.customerName,
+                    items: bill.items,
+                    total
+                };
+
+                const updatedItems = [...items];
+                bill.items.forEach(billItem => {
+                    const itemIndex = updatedItems.findIndex(i => i.id === billItem.id);
+                    if (itemIndex !== -1) {
+                        updatedItems[itemIndex].stock -= billItem.quantity;
+                    }
+                });
+                setItems(updatedItems);
+                setBills([...bills, newBill]);
+                setBill({ customerName: '', items: [] });
+                alert('✅ Bill तयार झाले! Stock update झाले.');
+            };
+
+            const removeFromBill = (index) => {
+                setBill({
+                    ...bill,
+                    items: bill.items.filter((_, i) => i !== index)
+                });
+            };
+
+            // Print Functions
+            const printQuotation = (q) => {
+                const w = window.open('', '', 'height=600,width=800');
+                w.document.write(`
+                    <html><head><title>Quotation</title><style>
+                        body{font-family:Arial;padding:20px}
+                        .header{text-align:center;border-bottom:3px solid #ea580c;padding-bottom:10px;margin-bottom:20px}
+                        h1{color:#ea580c;margin:0}
+                        table{width:100%;border-collapse:collapse;margin:20px 0}
+                        th,td{border:1px solid #ddd;padding:10px;text-align:left}
+                        th{background:#f97316;color:white}
+                        .total{text-align:right;font-size:20px;font-weight:bold;margin-top:20px}
+                        @media print{.no-print{display:none}}
+                    </style></head><body>
+                        <div class="header">
+                            <h1>🏪 SHRI SAMARTH HANDLOOM</h1>
+                            <p>Quality Fabrics & Furnishings</p>
+                        </div>
+                        <h2 style="text-align:center;color:#ea580c">QUOTATION</h2>
+                        <p><strong>Customer:</strong> ${q.customerName} &nbsp;&nbsp; <strong>Date:</strong> ${q.date}</p>
+                        <p><strong>Quotation No:</strong> QT-${q.id} &nbsp;&nbsp; <strong>Sofa:</strong> ${q.sofaDimensions}</p>
+                        <table>
+                            <thead><tr><th>Sr.</th><th>Description</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
+                            <tbody>
+                                ${q.items.map((item, idx) => `
+                                    <tr>
+                                        <td>${idx + 1}</td>
+                                        <td>${item.name}</td>
+                                        <td>${item.quantity} ${item.unit}</td>
+                                        <td>₹${item.rate.toFixed(2)}</td>
+                                        <td>₹${item.amount.toFixed(2)}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                        <div class="total"><strong>Total: ₹${q.total.toFixed(2)}</strong></div>
+                        <div class="no-print" style="text-align:center;margin-top:20px">
+                            <button onclick="window.print()" style="background:#ea580c;color:white;padding:10px 30px;border:none;border-radius:5px;cursor:pointer">Print</button>
+                        </div>
+                    </body></html>
+                `);
+                w.document.close();
+            };
+
+            const printBill = (b) => {
+                const w = window.open('', '', 'height=600,width=800');
+                w.document.write(`
+                    <html><head><title>Bill</title><style>
+                        body{font-family:Arial;padding:20px}
+                        .header{text-align:center;border-bottom:3px solid #16a34a;padding-bottom:10px;margin-bottom:20px}
+                        h1{color:#16a34a;margin:0}
+                        table{width:100%;border-collapse:collapse;margin:20px 0}
+                        th,td{border:1px solid #ddd;padding:10px;text-align:left}
+                        th{background:#16a34a;color:white}
+                        .total{text-align:right;font-size:20px;font-weight:bold;margin-top:20px}
+                        @media print{.no-print{display:none}}
+                    </style></head><body>
+                        <div class="header">
+                            <h1>🏪 SHRI SAMARTH HANDLOOM</h1>
+                            <p>Quality Fabrics & Furnishings</p>
+                        </div>
+                        <h2 style="text-align:center;color:#16a34a">INVOICE</h2>
+                        <p><strong>Customer:</strong> ${b.customerName} &nbsp;&nbsp; <strong>Date:</strong> ${b.date}</p>
+                        <p><strong>Bill No:</strong> INV-${b.id}</p>
+                        <table>
+                            <thead><tr><th>Sr.</th><th>Description</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
+                            <tbody>
+                                ${b.items.map((item, idx) => `
+                                    <tr>
+                                        <td>${idx + 1}</td>
+                                        <td>${item.name}</td>
+                                        <td>${item.quantity} ${item.unit}</td>
+                                        <td>₹${item.rate.toFixed(2)}</td>
+                                        <td>₹${item.amount.toFixed(2)}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                        <div class="total"><strong>Total: ₹${b.total.toFixed(2)}</strong></div>
+                        <p style="margin-top:40px;text-align:center"><strong>Authorized Signature: __________</strong></p>
+                        <div class="no-print" style="text-align:center;margin-top:20px">
+                            <button onclick="window.print()" style="background:#16a34a;color:white;padding:10px 30px;border:none;border-radius:5px;cursor:pointer">Print</button>
+                        </div>
+                    </body></html>
+                `);
+                w.document.close();
+            };
+
+            // Password Setup Screen
+            if (showPasswordSetup) {
+                return (
+                    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-red-50 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full">
+                            <div className="text-center mb-6">
+                                <div className="text-6xl mb-4">🏪</div>
+                                <h1 className="text-3xl font-bold text-orange-600">Shri Samarth Handloom</h1>
+                                <p className="text-gray-600 mt-2">पहिल्यांदा Setup - पासवर्ड सेट करा</p>
+                            </div>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-semibold mb-2">नवीन पासवर्ड</label>
+                                    <input
+                                        type="password"
+                                        className="w-full border-2 rounded-lg px-4 py-3 focus:border-orange-500 focus:outline-none"
+                                        placeholder="पासवर्ड टाका (किमान 4 अक्षर)"
+                                        value={newPassword}
+                                        onChange={(e) => setNewPassword(e.target.value)}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold mb-2">पासवर्ड Confirm</label>
+                                    <input
+                                        type="password"
+                                        className="w-full border-2 rounded-lg px-4 py-3 focus:border-orange-500 focus:outline-none"
+                                        placeholder="पासवर्ड पुन्हा टाका"
+                                        value={confirmPassword}
+                                        onChange={(e) => setConfirmPassword(e.target.value)}
+                                        onKeyPress={(e) => e.key === 'Enter' && handlePasswordSetup()}
+                                    />
+                                </div>
+                                <button
+                                    onClick={handlePasswordSetup}
+                                    className="w-full bg-gradient-to-r from-orange-600 to-red-600 text-white py-3 rounded-lg font-semibold hover:from-orange-700 hover:to-red-700 shadow-lg"
+                                >
+                                    🔐 पासवर्ड Set करा
+                                </button>
+                                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                                    <p className="text-sm text-yellow-800 text-center">
+                                        ⚠️ <strong>महत्वाचे:</strong> हा पासवर्ड विसरू नका!
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            // Login Screen
+            if (!isAuthenticated) {
+                return (
+                    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-red-50 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full">
+                            <div className="text-center mb-6">
+                                <div className="text-6xl mb-4">🏪</div>
+                                <h1 className="text-3xl font-bold text-orange-600">Shri Samarth Handloom</h1>
+                                <p className="text-gray-600 mt-2">🔒 Secure Login</p>
+                            </div>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-semibold mb-2">पासवर्ड टाका</label>
+                                    <input
+                                        type="password"
+                                        className="w-full border-2 rounded-lg px-4 py-3 focus:border-orange-500 focus:outline-none"
+                                        placeholder="Password"
+                                        value={loginPassword}
+                                        onChange={(e) => setLoginPassword(e.target.value)}
+                                        onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
+                                        autoFocus
+                                    />
+                                </div>
+                                <button
+                                    onClick={handleLogin}
+                                    className="w-full bg-gradient-to-r from-orange-600 to-red-600 text-white py-3 rounded-lg font-semibold hover:from-orange-700 hover:to-red-700 shadow-lg"
+                                >
+                                    🔓 Login
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            // Main App
+            return (
+                <div className="min-h-screen bg-gray-50">
+                    {/* Header */}
+                    <div className="bg-gradient-to-r from-orange-600 to-red-600 text-white p-3 sm:p-4 shadow-lg sticky top-0 z-50">
+                        <div className="max-w-7xl mx-auto">
+                            <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
+                                <div className="text-center sm:text-left">
+                                    <h1 className="text-xl sm:text-2xl font-bold">🏪 Shri Samarth Handloom</h1>
+                                    <p className="text-xs sm:text-sm text-orange-100">🔒 Professional Management System</p>
+                                </div>
+                                <div className="flex flex-wrap gap-2 justify-center">
+                                    <label className="bg-green-500 hover:bg-green-600 px-3 py-2 rounded text-xs sm:text-sm font-semibold cursor-pointer">
+                                        📥 Import
+                                        <input type="file" accept=".json" onChange={handleImportData} className="hidden" />
+                                    </label>
+                                    <button onClick={handleExportData} className="bg-blue-500 hover:bg-blue-600 px-3 py-2 rounded text-xs sm:text-sm font-semibold">
+                                        📤 Export
+                                    </button>
+                                    <button onClick={handleChangePassword} className="bg-white/20 hover:bg-white/30 px-3 py-2 rounded text-xs sm:text-sm font-semibold">
+                                        🔑 Password
+                                    </button>
+                                    <button onClick={handleLogout} className="bg-red-500 hover:bg-red-600 px-3 py-2 rounded text-xs sm:text-sm font-semibold">
+                                        🚪 Logout
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Tabs */}
+                    <div className="bg-white shadow-md sticky top-[72px] sm:top-[80px] z-40">
+                        <div className="max-w-7xl mx-auto px-2">
+                            <div className="flex overflow-x-auto">
+                                {['inventory', 'debit-credit', 'quotation', 'billing', 'ca-reports'].map(tab => (
+                                    <button
+                                        key={tab}
+                                        onClick={() => setActiveTab(tab)}
+                                        className={`px-4 py-3 font-semibold text-xs sm:text-sm whitespace-nowrap ${
+                                            activeTab === tab
+                                                ? 'border-b-4 border-orange-600 text-orange-600'
+                                                : 'text-gray-600'
+                                        }`}
+                                    >
+                                        {tab.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="max-w-7xl mx-auto p-3 sm:p-6">
+                        {/* Inventory Tab */}
+                        {activeTab === 'inventory' && (
+                            <div className="bg-white rounded-lg shadow p-4 sm:p-6">
+                                <h2 className="text-xl sm:text-2xl font-bold mb-4">📦 Inventory</h2>
+                                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-4 mb-4">
+                                    <input type="text" placeholder="Item Name" className="border rounded px-3 py-2 text-sm" value={newItem.name} onChange={(e) => setNewItem({...newItem, name: e.target.value})} />
+                                    <input type="number" placeholder="Rate" className="border rounded px-3 py-2 text-sm" value={newItem.rate} onChange={(e) => setNewItem({...newItem, rate: e.target.value})} />
+                                    <input type="number" placeholder="Stock" className="border rounded px-3 py-2 text-sm" value={newItem.stock} onChange={(e) => setNewItem({...newItem, stock: e.target.value})} />
+                                    <select className="border rounded px-3 py-2 text-sm" value={newItem.unit} onChange={(e) => setNewItem({...newItem, unit: e.target.value})}>
+                                        <option value="meter">Meter</option>
+                                        <option value="piece">Piece</option>
+                                        <option value="kg">Kg</option>
+                                        <option value="sq.ft">Sq.Ft</option>
+                                    </select>
+                                    <button onClick={handleAddItem} className="bg-orange-600 text-white px-4 py-2 rounded hover:bg-orange-700 text-sm font-semibold">
+                                        {editingItem ? 'Update' : 'Add'}
+                                    </button>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-gray-100">
+                                            <tr>
+                                                <th className="px-2 py-2 text-left">Item</th>
+                                                <th className="px-2 py-2 text-right">Rate</th>
+                                                <th className="px-2 py-2 text-right">Stock</th>
+                                                <th className="px-2 py-2 text-left">Unit</th>
+                                                <th className="px-2 py-2 text-center">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {items.map(item => (
+                                                <tr key={item.id} className="border-b">
+                                                    <td className="px-2 py-2">{item.name}</td>
+                                                    <td className="px-2 py-2 text-right">₹{item.rate}</td>
+                                                    <td className="px-2 py-2 text-right">
+                                                        <span className={item.stock < 20 ? 'text-red-600 font-semibold' : ''}>{item.stock}</span>
+                                                    </td>
+                                                    <td className="px-2 py-2">{item.unit}</td>
+                                                    <td className="px-2 py-2 text-center space-x-2">
+                                                        <button onClick={() => handleEditItem(item)} className="text-blue-600">✏️</button>
+                                                        <button onClick={() => handleDeleteItem(item.id)} className="text-red-600">🗑️</button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                            {items.length === 0 && (
+                                                <tr><td colSpan="5" className="text-center py-8 text-gray-500">Items add करा</td></tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Debit/Credit Tab */}
+                        {activeTab === 'debit-credit' && (
+                            <div className="bg-white rounded-lg shadow p-4 sm:p-6">
+                                <h2 className="text-xl sm:text-2xl font-bold mb-4">💰 Debit/Credit</h2>
+                                <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 sm:gap-4 mb-4">
+                                    <input type="date" className="border rounded px-3 py-2 text-sm" value={transaction.date} onChange={(e) => setTransaction({...transaction, date: e.target.value})} />
+                                    <select className="border rounded px-3 py-2 text-sm" value={transaction.type} onChange={(e) => setTransaction({...transaction, type: e.target.value})}>
+                                        <option value="credit">Credit (+)</option>
+                                        <option value="debit">Debit (-)</option>
+                                    </select>
+                                    <input type="text" placeholder="Party Name" className="border rounded px-3 py-2 text-sm" value={transaction.party} onChange={(e) => setTransaction({...transaction, party: e.target.value})} />
+                                    <input type="number" placeholder="Amount" className="border rounded px-3 py-2 text-sm" value={transaction.amount} onChange={(e) => setTransaction({...transaction, amount: e.target.value})} />
+                                    <input type="text" placeholder="Description" className="border rounded px-3 py-2 text-sm" value={transaction.description} onChange={(e) => setTransaction({...transaction, description: e.target.value})} />
+                                    <button onClick={handleAddTransaction} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 text-sm font-semibold">Add</button>
+                                </div>
+                                <div className="bg-gradient-to-r from-green-50 to-blue-50 p-4 rounded-lg mb-4">
+                                    <h3 className="text-lg font-semibold">Current Balance: <span className={calculateBalance() >= 0 ? 'text-green-600' : 'text-red-600'}>₹{calculateBalance().toFixed(2)}</span></h3>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-gray-100">
+                                            <tr>
+                                                <th className="px-2 py-2 text-left">Date</th>
+                                                <th className="px-2 py-2 text-left">Type</th>
+                                                <th className="px-2 py-2 text-left">Party</th>
+                                                <th className="px-2 py-2 text-right">Amount</th>
+                                                <th className="px-2 py-2 text-left">Description</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {transactions.map(t => (
+                                                <tr key={t.id} className="border-b">
+                                                    <td className="px-2 py-2">{t.date}</td>
+                                                    <td className="px-2 py-2">
+                                                        <span className={`px-2 py-1 rounded text-xs ${t.type === 'credit' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                                            {t.type.toUpperCase()}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-2 py-2">{t.party}</td>
+                                                    <td className="px-2 py-2 text-right font-semibold">{t.type === 'credit' ? '+' : '-'}₹{t.amount.toFixed(2)}</td>
+                                                    <td className="px-2 py-2">{t.description}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Quotation Tab */}
+                        {activeTab === 'quotation' && (
+                            <div className="space-y-4">
+                                <div className="bg-white rounded-lg shadow p-4 sm:p-6">
+                                    <h2 className="text-xl sm:text-2xl font-bold mb-4">📋 Quotation</h2>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                                        <input type="text" placeholder="Customer Name" className="border rounded px-3 py-2" value={quotation.customerName} onChange={(e) => setQuotation({...quotation, customerName: e.target.value})} />
+                                        <input type="number" placeholder="Cushion Count" className="border rounded px-3 py-2" value={quotation.cushionCount} onChange={(e) => setQuotation({...quotation, cushionCount: e.target.value})} />
+                                        <input type="number" placeholder="Sofa Length (feet)" className="border rounded px-3 py-2" value={quotation.sofaLength} onChange={(e) => setQuotation({...quotation, sofaLength: e.target.value})} />
+                                        <input type="number" placeholder="Sofa Breadth (feet)" className="border rounded px-3 py-2" value={quotation.sofaBreadth} onChange={(e) => setQuotation({...quotation, sofaBreadth: e.target.value})} />
+                                    </div>
+                                    <div className="border-t pt-4 mb-4">
+                                        <h3 className="font-semibold mb-3">Additional Items</h3>
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                            <select className="border rounded px-3 py-2" value={billItem.itemId} onChange={(e) => setBillItem({...billItem, itemId: e.target.value})}>
+                                                <option value="">Select Item</option>
+                                                {items.map(item => (
+                                                    <option key={item.id} value={item.id}>{item.name} - ₹{item.rate}/{item.unit}</option>
+                                                ))}
+                                            </select>
+                                            <input type="number" placeholder="Quantity" className="border rounded px-3 py-2" value={billItem.quantity} onChange={(e) => setBillItem({...billItem, quantity: e.target.value})} />
+                                            <button onClick={addItemToQuotation} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Add</button>
+                                        </div>
+                                    </div>
+                                    {quotation.additionalItems.length > 0 && (
+                                        <div className="mb-4">
+                                            <h4 className="font-semibold mb-2">Added Items:</h4>
+                                            {quotation.additionalItems.map((item, idx) => (
+                                                <div key={idx} className="flex justify-between bg-gray-50 px-3 py-2 rounded mb-1">
+                                                    <span>{item.name} - {item.quantity} {item.unit}</span>
+                                                    <span className="font-semibold">₹{item.amount.toFixed(2)}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <button onClick={handleGenerateQuotation} className="w-full bg-orange-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-orange-700">
+                                        Generate Quotation
+                                    </button>
+                                </div>
+
+                                <div className="bg-white rounded-lg shadow p-4 sm:p-6">
+                                    <h3 className="text-lg font-bold mb-4">Recent Quotations</h3>
+                                    {quotations.map(q => (
+                                        <div key={q.id} className="border rounded-lg p-4 mb-4">
+                                            <div className="flex justify-between items-start mb-2">
+                                                <div>
+                                                    <h4 className="font-semibold text-lg">{q.customerName}</h4>
+                                                    <p className="text-sm text-gray-600">Date: {q.date} | Sofa: {q.sofaDimensions}</p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="text-2xl font-bold text-orange-600">₹{q.total.toFixed(2)}</p>
+                                                    <button onClick={() => printQuotation(q)} className="mt-2 bg-orange-600 text-white px-4 py-2 rounded hover:bg-orange-700 text-sm">
+                                                        🖨️ Print
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div className="mt-3">
+                                                {q.items.map((item, idx) => (
+                                                    <div key={idx} className="flex justify-between text-sm py-1 border-b">
+                                                        <span>{item.name} - {item.quantity} {item.unit} @ ₹{item.rate}</span>
+                                                        <span>₹{item.amount.toFixed(2)}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Billing Tab */}
+                        {activeTab === 'billing' && (
+                            <div className="space-y-4">
+                                <div className="bg-white rounded-lg shadow p-4 sm:p-6">
+                                    <h2 className="text-xl sm:text-2xl font-bold mb-4">🧾 Billing</h2>
+                                    <input type="text" placeholder="Customer Name" className="border rounded px-3 py-2 w-full mb-4" value={bill.customerName} onChange={(e) => setBill({...bill, customerName: e.target.value})} />
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                                        <select className="border rounded px-3 py-2" value={billItem.itemId} onChange={(e) => setBillItem({...billItem, itemId: e.target.value})}>
+                                            <option value="">Select Item</option>
+                                            {items.map(item => (
+                                                <option key={item.id} value={item.id}>{item.name} - ₹{item.rate}/{item.unit} (Stock: {item.stock})</option>
+                                            ))}
+                                        </select>
+                                        <input type="number" placeholder="Quantity" className="border rounded px-3 py-2" value={billItem.quantity} onChange={(e) => setBillItem({...billItem, quantity: e.target.value})} />
+                                        <button onClick={handleAddToBill} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Add to Bill</button>
+                                    </div>
+                                    {bill.items.length > 0 && (
+                                        <div className="border rounded-lg p-4 mb-4">
+                                            <h3 className="font-semibold mb-3">Current Bill:</h3>
+                                            <table className="w-full text-sm">
+                                                <thead className="bg-gray-100">
+                                                    <tr>
+                                                        <th className="px-2 py-2 text-left">Item</th>
+                                                        <th className="px-2 py-2 text-right">Qty</th>
+                                                        <th className="px-2 py-2 text-right">Rate</th>
+                                                        <th className="px-2 py-2 text-right">Amount</th>
+                                                        <th className="px-2 py-2"></th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {bill.items.map((item, idx) => (
+                                                        <tr key={idx} className="border-b">
+                                                            <td className="px-2 py-2">{item.name}</td>
+                                                            <td className="px-2 py-2 text-right">{item.quantity} {item.unit}</td>
+                                                            <td className="px-2 py-2 text-right">₹{item.rate}</td>
+                                                            <td className="px-2 py-2 text-right font-semibold">₹{item.amount.toFixed(2)}</td>
+                                                            <td className="px-2 py-2 text-center">
+                                                                <button onClick={() => removeFromBill(idx)} className="text-red-600">❌</button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                    <tr className="bg-orange-50 font-bold">
+                                                        <td colSpan="3" className="px-2 py-2 text-right">Total:</td>
+                                                        <td className="px-2 py-2 text-right text-xl text-orange-600">
+                                                            ₹{bill.items.reduce((sum, item) => sum + item.amount, 0).toFixed(2)}
+                                                        </td>
+                                                        <td></td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                    <button onClick={handleGenerateBill} disabled={!bill.customerName || bill.items.length === 0} className="w-full bg-green-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-green-700 disabled:bg-gray-400">
+                                        Generate Bill & Update Stock
+                                    </button>
+                                </div>
+
+                                <div className="bg-white rounded-lg shadow p-4 sm:p-6">
+                                    <h3 className="text-lg font-bold mb-4">Bills History</h3>
+                                    {bills.map(b => (
+                                        <div key={b.id} className="border rounded-lg p-4 mb-4">
+                                            <div className="flex justify-between items-start mb-2">
+                                                <div>
+                                                    <h4 className="font-semibold text-lg">{b.customerName}</h4>
+                                                    <p className="text-sm text-gray-600">Date: {b.date}</p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="text-2xl font-bold text-green-600">₹{b.total.toFixed(2)}</p>
+                                                    <button onClick={() => printBill(b)} className="mt-2 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 text-sm">
+                                                        🖨️ Print
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div className="mt-3">
+                                                {b.items.map((item, idx) => (
+                                                    <div key={idx} className="flex justify-between text-sm py-1 border-b">
+                                                        <span>{item.name} - {item.quantity} {item.unit} @ ₹{item.rate}</span>
+                                                        <span>₹{item.amount.toFixed(2)}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* CA Reports Tab */}
+                        {activeTab === 'ca-reports' && (
+                            <div className="bg-white rounded-lg shadow p-4 sm:p-6">
+                                <h2 className="text-xl sm:text-2xl font-bold mb-6">📊 CA Reports</h2>
+                                
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                                    <div className="bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-lg p-6">
+                                        <h3 className="text-lg font-semibold mb-2">Total Sales</h3>
+                                        <p className="text-3xl font-bold">₹{bills.reduce((sum, b) => sum + b.total, 0).toFixed(2)}</p>
+                                        <p className="text-sm mt-2">{bills.length} Bills</p>
+                                    </div>
+                                    <div className="bg-gradient-to-br from-red-500 to-red-600 text-white rounded-lg p-6">
+                                        <h3 className="text-lg font-semibold mb-2">Total Purchases</h3>
+                                        <p className="text-3xl font-bold">₹{transactions.filter(t => t.type === 'debit').reduce((sum, t) => sum + t.amount, 0).toFixed(2)}</p>
+                                        <p className="text-sm mt-2">{transactions.filter(t => t.type === 'debit').length} Entries</p>
+                                    </div>
+                                    <div className="bg-gradient-to-br from-green-500 to-green-600 text-white rounded-lg p-6">
+                                        <h3 className="text-lg font-semibold mb-2">Net Profit/Loss</h3>
+                                        <p className="text-3xl font-bold">
+                                            ₹{(bills.reduce((sum, b) => sum + b.total, 0) - transactions.filter(t => t.type === 'debit').reduce((sum, t) => sum + t.amount, 0)).toFixed(2)}
+                                        </p>
+                                    </div>
+                                    <div className="bg-gradient-to-br from-orange-500 to-orange-600 text-white rounded-lg p-6">
+                                        <h3 className="text-lg font-semibold mb-2">Current Balance</h3>
+                                        <p className="text-3xl font-bold">₹{calculateBalance().toFixed(2)}</p>
+                                        <p className="text-sm mt-2">{transactions.length} Transactions</p>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <h3 className="text-lg font-bold">Download Reports (Excel)</h3>
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                        <button onClick={() => exportToExcel('sales')} className="bg-blue-600 text-white px-4 py-3 rounded hover:bg-blue-700 font-semibold">
+                                            📊 Sales Report
+                                        </button>
+                                        <button onClick={() => exportToExcel('purchases')} className="bg-red-600 text-white px-4 py-3 rounded hover:bg-red-700 font-semibold">
+                                            📈 Purchase Report
+                                        </button>
+                                        <button onClick={() => exportToExcel('ledger')} className="bg-green-600 text-white px-4 py-3 rounded hover:bg-green-700 font-semibold">
+                                            📒 Complete Ledger
+                                        </button>
+                                        <button onClick={() => exportToExcel('all')} className="bg-orange-600 text-white px-4 py-3 rounded hover:bg-orange-700 font-semibold">
+                                            📦 All Reports
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="mt-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                                    <p className="text-sm text-yellow-800">
+                                        <strong>📌 Note:</strong> सगळे reports Excel format मध्ये download होतील. CA ला direct email करा किंवा print करा.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
